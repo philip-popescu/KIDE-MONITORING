@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "connection": {
+    "host": "",
+    "port": 502,
+    "unit_id": 0,
+    "panel_id": null,
+    "initial_panel": null,
+    "bms_mode": "zonepoint",
+    "firmware": "",
+    "timeout_seconds": 3.0
+  },
+  "polling": {
+    "request_interval_seconds": 1.0,
+    "stale_min_seconds": 5.0,
+    "stale_scan_multiplier": 2.0,
+    "reconnect_initial_seconds": 2.0,
+    "reconnect_max_seconds": 30.0
+  },
+  "modules": [
+    {
+      "id": 1,
+      "name": "Module 1",
+      "loop": 1,
+      "address": 1,
+      "inputs": [
+        {
+          "channel": 1,
+          "label": "IN1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "IN2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "IN3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "IN4",
+          "mapping": null
+        }
+      ],
+      "outputs": [
+        {
+          "channel": 1,
+          "label": "OUT1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "OUT2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "OUT3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "OUT4",
+          "mapping": null
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Module 2",
+      "loop": 1,
+      "address": 2,
+      "inputs": [
+        {
+          "channel": 1,
+          "label": "IN1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "IN2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "IN3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "IN4",
+          "mapping": null
+        }
+      ],
+      "outputs": [
+        {
+          "channel": 1,
+          "label": "OUT1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "OUT2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "OUT3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "OUT4",
+          "mapping": null
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Module 3",
+      "loop": 1,
+      "address": 3,
+      "inputs": [
+        {
+          "channel": 1,
+          "label": "IN1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "IN2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "IN3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "IN4",
+          "mapping": null
+        }
+      ],
+      "outputs": [
+        {
+          "channel": 1,
+          "label": "OUT1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "OUT2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "OUT3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "OUT4",
+          "mapping": null
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Module 4",
+      "loop": 1,
+      "address": 4,
+      "inputs": [
+        {
+          "channel": 1,
+          "label": "IN1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "IN2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "IN3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "IN4",
+          "mapping": null
+        }
+      ],
+      "outputs": [
+        {
+          "channel": 1,
+          "label": "OUT1",
+          "mapping": null
+        },
+        {
+          "channel": 2,
+          "label": "OUT2",
+          "mapping": null
+        },
+        {
+          "channel": 3,
+          "label": "OUT3",
+          "mapping": null
+        },
+        {
+          "channel": 4,
+          "label": "OUT4",
+          "mapping": null
+        }
+      ]
+    }
+  ],
+  "reset": {
+    "enabled": true,
+    "target_panel_id": 0
+  }
+}
