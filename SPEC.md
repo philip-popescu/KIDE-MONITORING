@@ -1,10 +1,11 @@
 # KIDE Monitoring - Application Specification
 
-Status: Implemented with configurable channel mappings. Per-channel sources still
-require verification before live commissioning. The user authorized Execute Reset
-and required CustomTkinter and pymodbus during implementation.
+Status: Input zone profile, unlatched behavior, circuit fault colors, and the
+user-requested assumed output range are implemented. Actual relay feedback and
+specific live circuit diagnoses remain unverified. Execute Reset, CustomTkinter,
+and pymodbus are required.
 
-Date: 2026-10-23
+Updated: 2026-10-26
 
 ## 1. Purpose and scope
 
@@ -22,9 +23,12 @@ panel IP and TCP port fields and a button to send documented Execute Reset.
 | R03 | Display four input squares per module, for 16 input indicators total. |
 | R04 | Arrange modules as Module 1 at row 1 / column 1, Module 2 at row 2 / column 1, Module 3 at row 1 / column 2, and Module 4 at row 2 / column 2. |
 | R05 | Display output states in a separate window using the same module arrangement. |
-| R06 | Red means live input/output active; green means live input/output inactive. These are live I/O states, rather than alarm or enable/disable states. |
+| R06 | Inputs use dedicated unlatched zone alarm states. Verified output sources show active/inactive; the requested assumed output range shows the selected bit as set/clear with an explicit assumed label. |
 | R07 | Provide editable panel IP address and TCP port fields. |
 | R08 | Provide Reset panel using documented Execute Reset. The implementation-stage instruction supersedes the earlier electronics reboot requirement. |
+| R09 | Input short circuit is yellow, open circuit is blue, and improper resistor value is purple. Only verified diagnostic values can establish a specific fault type. |
+| R10 | Use panel ID 001, InitPan 1, Modbus Zonepoint, and sequential input zones 1-16: Module 1 uses 1-4, Module 2 uses 5-8, Module 3 uses 9-12, Module 4 uses 13-16. |
+| R11 | Default the 16 output slots to references 0x7001-0x7010 in module/channel order, using device alarm bit 1 as an assumed display. Keep this source unverified and clearly labeled. |
 
 ### Proposed defaults
 
@@ -46,13 +50,16 @@ These are implementation choices, not additional confirmed user requirements:
 | --- | --- |
 | [DESCRIPTION.md](DESCRIPTION.md) | Original application request, colors, module grid, separate outputs window, connection fields, and restart action. |
 | User clarifications, 2026-10-23 | Modules are on loop 1 at addresses 1-4; colors represent live I/O. During implementation the user authorized Execute Reset, required CustomTkinter and pymodbus, and requested removal of unneeded code. |
+| User confirmations and PCC-EX screenshots, 2026-10-26 | Panel 001, Modbus Zonepoint, InitPan 1, sequential dedicated input zones 1-16, unlatched inputs, and yellow/blue/purple circuit fault colors. Output groups 1, 3, and 301 establish membership only. |
+| User output-range instruction, 2026-10-26 | Use device-status references 0x7001-0x7010 as the default output mapping. This authorizes the assumed display without establishing relay feedback semantics. |
 | [Modbus protocol guide](modbus_protocol_guide_for_addressable_control_panels_en.pdf) | Revision 004, issued 04JUN25. Printed pp. 3, 5-6, 16-20, 31-34 and Examples establish port, addressing, status flags, reset semantics, request size, and polling limits. |
 | [2X-A installation manual](2x-a_series_installation_manual_ro.pdf) | Printed pp. 71, 98, and 100 describe Modbus activation, PAK, Zonepoint mode, and InitPan. |
 
-The supplied guide documents general device status flags. It does not establish
-how to obtain the four independent live inputs and four independent live outputs
-of each KE-IO3144. It documents the Execute Reset operation now authorized by the
-user. Present this action as panel reset, with no electronics reboot claim.
+The guide documents device and zone status flags. User-confirmed dedicated zones
+now provide individual input alarm sources. Its zone fault bit does not identify
+short circuit, open circuit, or improper resistance. Independent output status
+and detailed circuit diagnoses remain unverified. Present Execute Reset as panel
+reset, with no electronics reboot claim.
 
 ## 3. Screens and interaction
 
@@ -97,8 +104,14 @@ the inputs window. It shares the main window's connection and data model.
 
 | State | Presentation |
 | --- | --- |
-| Fresh, verified active value | Red square and `Active` text. |
-| Fresh, verified inactive value | Green square and `Inactive` text. |
+| Fresh input zone alarm / verified output active | Red square and `Alarm` / `Active` text. |
+| Fresh input zone normal / verified output inactive | Green square and `Normal` / `Inactive` text. |
+| Selected bit set/clear in the assumed output range | Red/green square labeled `Set (assumed)` / `Clear (assumed)`, with its source register visible. Never label these as verified relay states. |
+| Verified input short circuit | Yellow square and `Short circuit` text. |
+| Verified input open circuit | Blue square and `Open circuit` text. |
+| Verified improper input resistor value | Purple square and `Resistor fault` text. |
+| General fault without a fresh, verified circuit diagnosis | Gray square and `Fault` text. |
+| Zone in test, disabled, or prealarm | Gray square with the corresponding status text. |
 | No verified mapping or no successful reading yet | Gray square and `Unknown` or `Not configured` text. |
 | Reading is stale or unavailable | Gray square and `Stale` or `Unavailable` text; retain the last known value and timestamp as details only. |
 | Device fault, test, or disabled condition is reported | Show a distinct badge/message. These flags do not themselves determine live I/O activity. |
@@ -122,8 +135,8 @@ only when the mapping documentation establishes that it remains meaningful.
 | Module 3 | Row 1, column 2 | 1 | 3 |
 | Module 4 | Row 2, column 2 | 1 | 4 |
 
-The panel's actual node ID and BMS InitPan setting remain unconfirmed. Keep
-these distinct from device addresses and the Modbus TCP unit identifier.
+The confirmed panel ID is 001, BMS InitPan is 1, and the protocol is Modbus in
+Zonepoint mode. The Modbus TCP unit identifier remains separately configurable.
 
 ### 4.2 Required channel mapping
 
@@ -134,8 +147,9 @@ Before commissioning, obtain a verified source for each of the 16 inputs and
 - Documented register reference and its zero-based Modbus PDU address.
 - The verified extraction rule, such as bit mask or value comparison, including
   any inversion required to interpret active versus inactive.
-- Whether the value describes a live input, commanded output, or measured output
-  feedback, and whether it latches. A latched alarm cannot substitute for live I/O.
+- Whether the value describes a zone alarm, live input, commanded output, or
+  measured output feedback, and whether it latches. The user specified unlatched
+  input behavior; the application must not hold an alarm or fault after it clears.
 - Source documentation or panel configuration reference used to verify it.
 
 The description requests live output state. The implementation must identify
@@ -147,7 +161,21 @@ Do not assume that a module address identifies its four channels independently,
 that consecutive channels occupy consecutive registers, or that a module's alarm
 bit can be copied into all four squares.
 
-### 4.3 What the supplied device map establishes
+### 4.3 Confirmed input map and remaining source limitations
+
+Input zones 1-16 use references `0x3001`-`0x3010`, or transmitted addresses
+`0x3000`-`0x300F`. Within each module, channels I1-I4 occupy the next four zones.
+The alarm mask is `0x0002`; fault is `0x0004`, test `0x0008`, and disabled `0x0010`.
+Ship this profile for new configurations and provide Settings > Use zones 1-16 for
+existing installations without overwriting connection endpoints or output maps.
+
+Input fault rules may use independently verified holding-register sources, masks,
+fault/normal codes, and documentation references. Include these reads in the same
+four-register, one-second request schedule. Missing, stale, conflicting, or unknown
+diagnoses must not be invented as yellow/blue/purple fault types. A general zone
+fault stays gray when its detailed type is unavailable. Fault takes priority over
+alarm; test/disabled conditions and stale data take precedence over colored data.
+When the fresh zone no longer reports a fault, remove any diagnostic fault color.
 
 In Zone/Point mode, the guide assigns one general status register per addressed
 device. Its documented flags are prealarm (bit 0), alarm (bit 1), fault (bit 2),
@@ -160,10 +188,28 @@ loop 1, device addresses 1-4 correspond to documented references
 of module summary addressing, not a completed channel map. Recalculate the
 mapping from the actual panel node ID and InitPan before using it.
 
-If the required channel values are unavailable over the documented Modbus
-interface, record that limitation and obtain a supported integration approach.
-The application can still be demonstrated with clearly marked simulated data,
-but live monitoring acceptance remains blocked until all channel sources exist.
+PCC-EX confirms output membership: Module 1 O2 belongs to group 1; Module 1
+O1/O3/O4 and Module 2 O1-O4 belong to group 3; Modules 3 and 4 O1-O4 belong to
+group 301. These group numbers are not individual output status register addresses.
+
+The user subsequently requested default output references `0x7001`-`0x7010`.
+Assign four consecutive references per module, O1-O4 in order. Read them at PDU
+addresses `0x7000`-`0x700F`, using the standard device alarm mask `0x0002` as the
+initial selection. Preserve the source kind `assumed_device_status` and
+`verified: false`. Show the register on each tile, assumed labels, an output
+notice, and an assumed qualifier in the footer. General device faults/test/
+disabled/prealarm states remain gray. Each slot uses its own selected source;
+do not gate a slot using an unrelated physical module's summary word.
+
+New installation profiles include this assumed range. Settings > Use output
+range applies it explicitly to existing configurations, preserving inputs and
+connection/reset settings. Applying the input zone profile to existing settings
+preserves configured output mappings. Read planning deduplicates any shared
+device-summary references and retains the four-register/request limit.
+
+Simulation must demonstrate normal, alarm, short circuit, open circuit, and
+resistor fault independently, using synthetic diagnostic data kept out of saved
+live configurations. The Input selector can force each state for visual checks.
 
 ## 5. Modbus communication
 
@@ -257,7 +303,7 @@ Broadcast reset (`0xFFFF`) is excluded.
 | --- | --- |
 | A01 | The inputs window displays exactly four modules and 16 input squares in the specified grid, with the confirmed loop/address labels. |
 | A02 | The separate outputs window displays four modules in the identical grid and, under the proposed four-output assumption, 16 output squares. |
-| A03 | A verified active channel is red and an inactive channel is green, each with readable text. Changing one simulated channel changes only its own indicator unless mappings explicitly share a source. |
+| A03 | Verified normal/alarm and short/open/resistor states use green/red/yellow/blue/purple with readable labels. Per-channel fault codes change only the matching input. Faults remain gray without a verified specific diagnosis. |
 | A04 | Missing mappings, malformed responses, device unavailability, startup without data, and connection failures never produce fabricated green states. |
 | A05 | Both windows share one connection and request schedule; repeated opens and window closes behave as specified. |
 | A06 | IP and port validation works, saved settings reload, and the GUI remains responsive during timeouts and reconnection. |
@@ -265,6 +311,8 @@ Broadcast reset (`0xFFFF`) is excluded.
 | A08 | Channel-level timestamps and stale/unavailable behavior remain correct during partial read failures and longer scan cycles. |
 | A09 | A verified mapping identifies every live input and output independently. Commissioning confirms every indicator against a known channel state and documents output-state semantics. |
 | A10 | Reset uses function 06 / PDU address 0 and the selected local or explicit target, sends one command after UI confirmation, handles uncertain outcomes, and resumes monitoring afterward. |
+| A11 | Confirmed input zone mappings preserve unlatched transitions. A cleared alarm/fault returns to the fresh reported state immediately; no automatic panel reset or software latch is added. |
+| A12 | The default output range round-trips as unverified assumed status, reads all 16 references in batches of four, shows set/clear rather than relay activity, and retains freshness/error handling per source. |
 
 Use a Modbus simulator/fake transport for decoding, scheduling, exception, timeout,
 and command-outcome checks. Perform a visual review of both windows. Hardware
@@ -275,11 +323,12 @@ resolved; this specification does not claim that those checks have been performe
 
 | Item | Required information or decision | Current status |
 | --- | --- | --- |
-| O01 | Verified channel-level register/configuration map for all four inputs and four outputs per module, including live versus latched semantics. | Not established by the supplied manuals or module addresses. |
+| O01 | Individual input and output read sources. | Input zone alarm mapping confirmed. User-requested output range implemented as an assumption; actual relay-state semantics remain unverified. |
 | O02 | Panel action. | Resolved: user authorized Execute Reset; implemented as Reset panel. |
-| O03 | Actual panel node ID, BMS InitPan, Modbus activation, and unit identifier. | Confirm during setup; these can be configuration values. |
+| O03 | Panel/BMS settings and Modbus unit identifier. | Panel 001, InitPan 1, Modbus Zonepoint confirmed in PCC-EX. Unit identifier is separately configurable; default 0. |
 | O04 | Whether output state means panel activation state or physical feedback, based on what the panel exposes. | Resolve alongside O01. |
 | O05 | Windows target, English labels, four outputs per module, and horizontal channel arrangement. | Proposed defaults, open to revision. |
+| O06 | Separate short/open/improper-resistor diagnosis codes. | Not exposed by the supplied standard zone map. UI, simulation, and configurable verified rules are implemented; live subtype detection needs an additional documented source. |
 
 ## 10. Initial delivery scope
 

@@ -6,7 +6,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import sys
 
-from kide_monitor.config import ConfigError, default_config, load_config
+from kide_monitor.config import ConfigError, zonepoint_config, load_config
 
 
 def main():
@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--validate-config", action="store_true", help="Validate the selected configuration and exit")
     args = parser.parse_args()
     try:
-        config = load_config(args.config) if args.config.exists() else default_config()
+        config = load_config(args.config) if args.config.exists() else zonepoint_config()
         if args.validate_config:
             if not args.config.exists():
                 raise ConfigError(f"Configuration file not found: {args.config}")

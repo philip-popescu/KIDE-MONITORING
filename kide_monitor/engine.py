@@ -14,6 +14,7 @@ from .state import read_plan
 
 
 LOG = logging.getLogger(__name__)
+SIM_INPUT_CONDITIONS = ("Auto", "Normal", "Alarm", "Short circuit", "Open circuit", "Resistor fault")
 
 
 class RequestLimiter:
@@ -35,6 +36,7 @@ class SimulationControls:
     paused: threading.Event = field(default_factory=threading.Event)
     step: int = 0
     fault_module: int = 0
+    input_condition: str = "Auto"
 
 
 class SimulationClient:
@@ -49,6 +51,12 @@ class SimulationClient:
     def close(self):
         pass
 
+    def _input_condition(self, module, channel, phase):
+        if self.controls.input_condition != "Auto":
+            return self.controls.input_condition
+        return ("Normal", "Alarm", "Short circuit", "Open circuit", "Resistor fault", "Normal", "Normal")[
+            (phase + (module - 1) * 4 + channel) % 7]
+
     def read_holding_registers(self, address, count):
         self.connect()
         phase = int(time.monotonic() / 3) + self.controls.step
@@ -56,9 +64,17 @@ class SimulationClient:
         for ref in range(address, address + count):
             if ref in self.summaries:
                 values.append(4 if self.controls.fault_module == self.summaries[ref] else 0)
+            elif 0x6000 <= ref <= 0x6003:
+                codes = {"Short circuit": 1, "Open circuit": 2, "Resistor fault": 3}
+                values.append(sum(codes.get(self._input_condition(ref - 0x6000 + 1, n, phase), 0) << (3 * n)
+                                  for n in range(4)))
             else:
                 offset = ref - 0x5000
-                values.append(sum(1 << n for n in range(4) if (phase + offset + n) % 3 == 0))
+                if offset % 2 == 0:
+                    values.append(sum(1 << n for n in range(4)
+                                      if self._input_condition(offset // 2 + 1, n, phase) == "Alarm"))
+                else:
+                    values.append(sum(1 << n for n in range(4) if (phase + offset + n) % 3 == 0))
         return values
 
 

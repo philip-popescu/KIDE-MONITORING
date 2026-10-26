@@ -10,8 +10,8 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from .config import ConfigError, load_config, number, parse_config, save_config, simulation_config
-from .engine import MonitorEngine
+from .config import ConfigError, load_config, number, output_range_config, parse_config, save_config, simulation_config, zonepoint_config
+from .engine import MonitorEngine, SIM_INPUT_CONDITIONS
 from .state import MonitorState
 
 
@@ -23,6 +23,10 @@ MUTED = "#9AAFC8"
 BLUE = "#397DF5"
 AMBER = "#F1BC62"
 COLORS = {"Active": "#D94452", "Inactive": "#219E70", "Unknown": "#485970",
+          "Set (assumed)": "#D94452", "Clear (assumed)": "#219E70",
+          "Alarm": "#D94452", "Normal": "#219E70", "Short circuit": "#F2C94C",
+          "Open circuit": "#3F82E9", "Resistor fault": "#A565D7", "Fault": "#677489",
+          "Disabled": "#677489", "Test": "#677489", "Prealarm": "#677489",
           "Not configured": "#485970", "Stale": "#677489", "Unavailable": "#677489"}
 
 
@@ -49,6 +53,9 @@ class Indicator(ctk.CTkFrame):
         self.app, self.key = app, key
         self.previous = None
         label(self, channel.label, text_color=MUTED, anchor="center").pack(fill="x")
+        if channel.mapping and channel.mapping.data_kind == "assumed_device_status":
+            label(self, f"0x{channel.mapping.register_reference:04X}", font=("Segoe UI", 9),
+                  text_color=AMBER, height=14, anchor="center").pack(fill="x")
         self.square = ctk.CTkFrame(self, width=56, height=56, corner_radius=0,
                                    fg_color=COLORS["Unknown"], border_width=1, border_color="#71819A")
         self.square.pack(pady=(6, 6))
@@ -66,6 +73,7 @@ class Indicator(ctk.CTkFrame):
         current = (view.state, view.last_update)
         if current != self.previous:
             self.square.configure(fg_color=COLORS[view.state])
+            self.number.configure(text_color=BG if view.state == "Short circuit" else TEXT)
             self.status.configure(text=view.state)
             self.updated.configure(text=clock_text(view.last_update))
             self.previous = current
@@ -75,6 +83,7 @@ class ModuleCard(ctk.CTkFrame):
     def __init__(self, parent, app, module, direction):
         super().__init__(parent, fg_color=CARD, border_color=BORDER, border_width=1, corner_radius=12)
         self.module_id = module.id
+        self.direction = direction
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=20, pady=(12, 2))
         label(header, module.name, font=("Segoe UI", 17, "bold")).pack(side="left")
@@ -100,8 +109,12 @@ class ModuleCard(ctk.CTkFrame):
             view = monitor.view(key, now)
             indicator.render(view)
             views.append(view)
+        assumed = self.direction == "outputs" and any(monitor.channels[key].mapping and
+                      monitor.channels[key].mapping.data_kind == "assumed_device_status" for key in self.indicators)
         conditions = monitor.module_conditions(self.module_id, now)
-        if conditions:
+        if assumed:
+            text, color = "Assumed device-status bits / relay feedback unverified", AMBER
+        elif conditions:
             text = " / ".join(conditions)
             color = AMBER
         elif all(v.state == "Not configured" for v in views):
@@ -121,7 +134,8 @@ class Dashboard(ctk.CTkScrollableFrame):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", pady=(0, 10))
         label(header, direction.capitalize(), font=("Segoe UI", 23, "bold")).pack(side="left")
-        label(header, "Live channel activity", text_color=MUTED).pack(side="left", padx=14)
+        self.subtitle = label(header, "Live channel activity", text_color=MUTED)
+        self.subtitle.pack(side="left", padx=14)
         self.stats = label(header, "16 channels", text_color=MUTED)
         self.stats.pack(side="right")
         self.grid_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -136,6 +150,12 @@ class Dashboard(ctk.CTkScrollableFrame):
         for child in self.grid_frame.winfo_children():
             child.destroy()
         self.cards = {}
+        zone_inputs = self.direction == "inputs" and any(
+            ch.mapping and ch.mapping.data_kind == "zone_alarm"
+            for _, ch in self.app.monitor.config.channels())
+        assumed = self.direction == "outputs" and self.app.monitor.config.assumed_output_count()
+        self.subtitle.configure(text="Assumed device-status bits" if assumed else
+                                "Zone alarms & circuit status" if zone_inputs else "Channel activity & status")
         for module in self.app.monitor.config.modules:
             card = ModuleCard(self.grid_frame, self.app, module, self.direction)
             row, column = (module.id - 1) % 2, (module.id - 1) // 2
@@ -145,17 +165,24 @@ class Dashboard(ctk.CTkScrollableFrame):
 
     def render(self, now):
         views = [v for card in self.cards.values() for v in card.render(self.app.monitor, now)]
-        active = sum(v.state == "Active" for v in views)
-        inactive = sum(v.state == "Inactive" for v in views)
-        self.stats.configure(text=f"{active} active  /  {inactive} inactive  /  {16 - active - inactive} unknown")
+        active = sum(v.state in ("Active", "Alarm", "Set (assumed)") for v in views)
+        inactive = sum(v.state in ("Inactive", "Normal", "Clear (assumed)") for v in views)
+        faults = sum(v.state in ("Short circuit", "Open circuit", "Resistor fault", "Fault") for v in views)
+        assumed = self.direction == "outputs" and self.app.monitor.config.assumed_output_count()
+        self.stats.configure(text=f"{active} {'set' if assumed else 'active'}  /  {inactive} {'clear' if assumed else 'normal'}"
+                             f"  /  {faults} fault  /  {16 - active - inactive - faults} unknown")
+        return views
 
 
-def legend(parent):
+def legend(parent, inputs=False):
     row = ctk.CTkFrame(parent, fg_color="transparent")
-    for color, name in ((COLORS["Inactive"], "Inactive"), (COLORS["Active"], "Active"), (COLORS["Unknown"], "Unknown / unavailable")):
+    entries = [(COLORS["Inactive"], "Normal / inactive"), (COLORS["Active"], "Alarm / active")]
+    if inputs:
+        entries.extend((COLORS[name], name) for name in ("Short circuit", "Open circuit", "Resistor fault"))
+    entries.append((COLORS["Unknown"], "Unknown / other fault"))
+    for color, name in entries:
         ctk.CTkFrame(row, width=10, height=10, corner_radius=0, fg_color=color).pack(side="left", padx=(0, 6))
-        label(row, name, text_color=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=(0, 20))
-    label(row, "Click a channel for details", text_color=MUTED, font=("Segoe UI", 11)).pack(side="right")
+        label(row, name, text_color=MUTED, font=("Segoe UI", 11)).pack(side="left", padx=(0, 14))
     return row
 
 
@@ -164,7 +191,7 @@ class SettingsDialog(ctk.CTkToplevel):
         super().__init__(app)
         self.app = app
         self.title("Connection settings")
-        self.geometry("620x660")
+        self.geometry("620x700")
         self.resizable(False, False)
         self.configure(fg_color=BG)
         self.transient(app)
@@ -192,11 +219,19 @@ class SettingsDialog(ctk.CTkToplevel):
         ctk.CTkCheckBox(form, text="Enable panel reset", variable=self.reset_enabled).grid(row=7, column=0, columnspan=2, sticky="w", padx=18, pady=12)
         label(form, "Set both panel ID and InitPan to read module summaries.\nIndividual channel sources are loaded from a configuration file.",
               text_color=MUTED, justify="left", wraplength=510).grid(row=8, column=0, columnspan=2, sticky="w", padx=18, pady=12)
-        mapped = sum(ch.mapping is not None for _, ch in app.settings.channels())
-        label(self, f"{mapped}/32 channels mapped  |  {app.config_path.name}", text_color=MUTED).pack(anchor="w", padx=26, pady=(10, 0))
+        counts = app.settings.mapped_counts()
+        qualifier = " (assumed)" if app.settings.assumed_output_count() else ""
+        label(self, f"Inputs {counts['inputs']}/16  |  Outputs {counts['outputs']}/16{qualifier}  |  {app.config_path.name}",
+              text_color=MUTED).pack(anchor="w", padx=26, pady=(10, 0))
+        presets = ctk.CTkFrame(self, fg_color="transparent")
+        presets.pack(fill="x", padx=26, pady=(12, 0))
+        button(presets, "Load configuration...", self.import_config, width=170, fg_color=BORDER).pack(side="left")
+        button(presets, "Use zones 1-16", lambda: self.save(use_zone_mapping=True), width=130,
+               fg_color=BORDER).pack(side="left", padx=8)
+        button(presets, "Use output range", lambda: self.save(use_output_range=True), width=140,
+               fg_color=BORDER).pack(side="left")
         buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.pack(fill="x", padx=26, pady=18)
-        button(buttons, "Load configuration...", self.import_config, width=170, fg_color=BORDER).pack(side="left")
+        buttons.pack(fill="x", padx=26, pady=14)
         button(buttons, "Save", self.save).pack(side="right")
         button(buttons, "Cancel", self.destroy, fg_color=BORDER).pack(side="right", padx=8)
         self.after(100, self.grab_set)
@@ -208,7 +243,7 @@ class SettingsDialog(ctk.CTkToplevel):
         else:
             self.grab_set()
 
-    def save(self):
+    def save(self, use_zone_mapping=False, use_output_range=False):
         try:
             d = self.app.settings.to_dict()
             d["connection"].update(host=self.app.host.get().strip(), port=self.app.port.get().strip(),
@@ -225,6 +260,10 @@ class SettingsDialog(ctk.CTkToplevel):
                 d["connection"][key] = value
             d["reset"] = dict(enabled=self.reset_enabled.get(), target_panel_id=self.vars["target_panel_id"].get())
             config = parse_config(d)
+            if use_zone_mapping:
+                config = zonepoint_config(config)
+            if use_output_range:
+                config = output_range_config(config, replace_existing=True)
             save_config(config, self.app.config_path)
             self.app.apply_config(config)
         except (ConfigError, OSError) as exc:
@@ -304,12 +343,16 @@ class MonitorApp(ctk.CTk):
         self.fault = ctk.CTkOptionMenu(simulation_controls, values=["None", "1", "2", "3", "4"], width=75, height=26,
                                        command=lambda _: self.change_simulation())
         self.fault.pack(side="left")
+        label(simulation_controls, "Input:", text_color=AMBER, font=("Segoe UI", 11)).pack(side="left", padx=(14, 8))
+        self.input_condition = ctk.CTkOptionMenu(simulation_controls, values=list(SIM_INPUT_CONDITIONS),
+                                               width=140, height=26, command=lambda _: self.change_simulation())
+        self.input_condition.pack(side="left")
         button(simulation_controls, "Advance signals", self.advance_simulation, width=120, height=26, fg_color=BORDER).pack(side="right")
         self.dashboard_slot = ctk.CTkFrame(shell, fg_color="transparent", corner_radius=0)
         self.dashboard_slot.pack(fill="both", expand=True, pady=(10, 0))
         self.dashboard = Dashboard(self.dashboard_slot, self, "inputs")
         self.dashboard.pack(fill="both", expand=True)
-        legend(shell).pack(fill="x", pady=(10, 4))
+        legend(shell, inputs=True).pack(fill="x", pady=(10, 4))
         self.notice = label(shell, "", text_color=AMBER, font=("Segoe UI", 11), wraplength=1030, justify="left")
         self.notice.pack(fill="x")
         self.footer = label(shell, "", text_color=MUTED, font=("Segoe UI", 10))
@@ -369,6 +412,7 @@ class MonitorApp(ctk.CTk):
             self.paused.set(False)
             self.outage.set(False)
             self.fault.set("None")
+            self.input_condition.set("Auto")
             self.status_text = "Connecting"
             self.session = self.engine.start(effective, simulated)
             self.render()
@@ -424,6 +468,9 @@ class MonitorApp(ctk.CTk):
         self.outputs_dashboard = Dashboard(shell, self, "outputs")
         self.outputs_dashboard.pack(fill="both", expand=True)
         legend(shell).pack(fill="x", pady=(10, 0))
+        self.outputs_notice = label(shell, "", text_color=AMBER, font=("Segoe UI", 11),
+                                    wraplength=900, justify="left")
+        self.outputs_notice.pack(fill="x")
         self.outputs_footer = label(shell, "", text_color=MUTED, font=("Segoe UI", 10))
         self.outputs_footer.pack(fill="x")
         self.render()
@@ -435,7 +482,12 @@ class MonitorApp(ctk.CTk):
     def show_channel(self, key):
         channel = self.monitor.channels[key]
         view = self.monitor.view(key)
-        last = "Unknown" if view.last_value is None else ("Active" if view.last_value else "Inactive")
+        if view.source_kind == "zone_alarm":
+            last = "Unknown" if view.last_value is None else ("Alarm" if view.last_value else "No alarm")
+        elif view.source_kind == "assumed_device_status":
+            last = "Unknown" if view.last_value is None else ("Bit set (assumed)" if view.last_value else "Bit clear (assumed)")
+        else:
+            last = "Unknown" if view.last_value is None else ("Active" if view.last_value else "Inactive")
         messagebox.showinfo(f"Module {key[0]} / {channel.label}",
                             f"State: {view.state}\nLast known: {last}\nLast reading: {clock_text(view.last_update)}\n\n{view.detail}", parent=self)
 
@@ -458,6 +510,7 @@ class MonitorApp(ctk.CTk):
         (controls.paused.set if self.paused.get() else controls.paused.clear)()
         (controls.outage.set if self.outage.get() else controls.outage.clear)()
         controls.fault_module = 0 if self.fault.get() == "None" else int(self.fault.get())
+        controls.input_condition = self.input_condition.get()
 
     def advance_simulation(self):
         self.engine.simulation.step += 1
@@ -495,7 +548,7 @@ class MonitorApp(ctk.CTk):
 
     def render(self):
         now = time.monotonic()
-        self.dashboard.render(now)
+        input_views = self.dashboard.render(now)
         simulated = self.mode_var.get() == "Simulation"
         running = self.engine.running
         self.connect_button.configure(state="disabled" if running else "normal")
@@ -514,21 +567,42 @@ class MonitorApp(ctk.CTk):
                 "Connect to enable the panel reset command.")
         self.reset_hint.configure(text=self.reset_result or hint)
         self.connection_badge.configure(text=self.status_text.upper(), text_color=AMBER if simulated else ("#68DBAD" if self.monitor.connected else MUTED))
-        mapped = sum(ch.mapping is not None for _, ch in self.monitor.config.channels())
+        counts = self.monitor.config.mapped_counts()
+        assumed_outputs = self.monitor.config.assumed_output_count()
+        missing_inputs, missing_outputs = 16 - counts["inputs"], 16 - counts["outputs"]
+        notice_color = AMBER
         if self.last_error:
             notice = self.last_error
         elif simulated:
             notice = "Readings paused; values will become stale." if self.paused.get() else "Simulation data only. Live channel mappings remain unchanged."
-        elif mapped < 32:
-            notice = f"{32 - mapped} channels need verified mappings. Load a configuration from Settings to enable their live readings."
+        elif missing_inputs:
+            notice = f"{missing_inputs} input channels are not configured. Use Settings > Use zones 1-16 or load an input configuration."
+        elif missing_outputs:
+            notice = f"All 16 inputs are configured. The {missing_outputs} outputs are not configured."
+            notice_color = MUTED
+        elif assumed_outputs:
+            notice = f"Inputs are configured. {assumed_outputs} outputs use assumed device-status bits; relay feedback is unverified."
         else:
-            notice = ""
-        self.notice.configure(text=notice)
-        footer = f"Last reading  {clock_text(self.monitor.last_update)}     |     {mapped}/32 channels mapped     |     Planned scan  {self.monitor.scan_seconds:g}s     |     Stale after  {self.monitor.stale_seconds:g}s"
+            notice = "All inputs and outputs are configured."
+            notice_color = MUTED
+        if not simulated and any(v.state == "Fault" for v in input_views):
+            notice += " Input fault type is unavailable; those faults remain gray. Click a channel for details."
+            notice_color = AMBER
+        self.notice.configure(text=notice, text_color=notice_color)
+        qualifier = " assumed" if assumed_outputs else ""
+        footer = (f"Last reading  {clock_text(self.monitor.last_update)}     |     Inputs {counts['inputs']}/16"
+                  f"     |     Outputs {counts['outputs']}/16{qualifier}     |     Planned scan  {self.monitor.scan_seconds:g}s"
+                  f"     |     Stale after  {self.monitor.stale_seconds:g}s")
         self.footer.configure(text=footer)
         if self.outputs_dashboard:
             self.outputs_dashboard.render(now)
             self.outputs_mode.configure(text="SIMULATION / Synthetic output signals" if simulated else self.status_text)
+            self.outputs_notice.configure(text=(
+                "Simulation outputs only; live output mappings are unchanged." if simulated else
+                f"{missing_outputs} output channels need verified read mappings. This does not block input monitoring."
+                if missing_outputs else
+                f"{assumed_outputs} output slots use the assumed device-status range. Set/clear labels show selected bits, not verified relay states."
+                if assumed_outputs else "All 16 output channels are configured."))
             self.outputs_footer.configure(text=footer)
 
     def close(self):

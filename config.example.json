@@ -4,8 +4,8 @@
     "host": "",
     "port": 502,
     "unit_id": 0,
-    "panel_id": null,
-    "initial_panel": null,
+    "panel_id": 1,
+    "initial_panel": 1,
     "bms_mode": "zonepoint",
     "firmware": "",
     "timeout_seconds": 3.0
@@ -27,44 +27,140 @@
         {
           "channel": 1,
           "label": "IN1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12289,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 1: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "IN2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12290,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 2: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "IN3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12291,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 3: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "IN4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12292,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 4: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ],
       "outputs": [
         {
           "channel": 1,
           "label": "OUT1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28673,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "OUT2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28674,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "OUT3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28675,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "OUT4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28676,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ]
     },
@@ -77,44 +173,140 @@
         {
           "channel": 1,
           "label": "IN1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12293,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 5: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "IN2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12294,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 6: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "IN3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12295,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 7: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "IN4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12296,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 8: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ],
       "outputs": [
         {
           "channel": 1,
           "label": "OUT1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28677,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "OUT2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28678,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "OUT3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28679,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "OUT4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28680,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ]
     },
@@ -127,44 +319,140 @@
         {
           "channel": 1,
           "label": "IN1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12297,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 9: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "IN2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12298,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 10: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "IN3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12299,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 11: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "IN4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12300,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 12: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ],
       "outputs": [
         {
           "channel": 1,
           "label": "OUT1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28681,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "OUT2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28682,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "OUT3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28683,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "OUT4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28684,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ]
     },
@@ -177,44 +465,140 @@
         {
           "channel": 1,
           "label": "IN1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12301,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 13: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "IN2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12302,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 14: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "IN3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12303,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 15: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "IN4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 12304,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "zone_alarm",
+            "source": "Zone 16: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+            "verified": true,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ],
       "outputs": [
         {
           "channel": 1,
           "label": "OUT1",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28685,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 2,
           "label": "OUT2",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28686,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 3,
           "label": "OUT3",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28687,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         },
         {
           "channel": 4,
           "label": "OUT4",
-          "mapping": null
+          "mapping": {
+            "register_reference": 28688,
+            "mask": 2,
+            "active_value": 2,
+            "inactive_value": 0,
+            "data_kind": "assumed_device_status",
+            "source": "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+            "verified": false,
+            "latched": false,
+            "output_activation_accepted": false,
+            "valid_during_module_condition": false,
+            "fault_rules": []
+          }
         }
       ]
     }

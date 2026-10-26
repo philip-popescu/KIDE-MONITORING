@@ -2,8 +2,23 @@
 
 A CustomTkinter desktop app for a Kidde 2X-A panel, using pymodbus over Modbus TCP.
 Modules 1-4 default to loop 1, addresses 1-4. The inputs and outputs windows share
-one connection. Red means active, green means inactive, and gray means unknown,
-stale, or unavailable.
+one connection. The inputs use the confirmed, dedicated zones 1-16 on panel 001,
+with InitPan 1 and Zonepoint mode. Inputs are treated as unlatched: the app follows
+each fresh reported state without holding an alarm after it clears.
+
+| Input color | State |
+| --- | --- |
+| Green | Normal / inactive |
+| Red | Alarm / active |
+| Yellow | Verified short circuit |
+| Blue | Verified open circuit |
+| Purple | Verified improper resistor value (`Resistor fault`) |
+| Gray | Unknown, unavailable, stale, test, disabled, prealarm, or an unspecified fault |
+
+The documented zone map reports a general fault bit. It does not distinguish
+short circuit, open circuit, or improper resistance. Live zone faults therefore
+show **Fault** in gray until a verified diagnostic source identifies their type.
+The app does not infer a circuit type from alarm/fault bits or reserved bits.
 
 ## Install and run
 
@@ -29,7 +44,9 @@ The default port is 502. Live connection settings are saved to `config.json`.
 while disconnected.
 
 Simulation is prominently labeled in both windows. Its controls can pause
-readings, create a connection outage, or report a module fault. Simulation never
+readings, create a connection outage, or report a module fault. The **Input**
+selector demonstrates Normal, Alarm, Short circuit, Open circuit, and Resistor
+fault with synthetic signals. Simulation never
 connects to the panel, enables reset, or writes synthetic mappings into your live
 configuration.
 
@@ -68,11 +85,44 @@ an automatic resend. Monitoring restarts with fresh data afterward.
 
 ## Live channel configuration
 
-The supplied protocol guide documents module summary flags, but does not
-establish independent live input/output registers for the KE-IO3144. The app
-therefore ships with all 32 channel mappings unset. They remain gray until a
-verified mapping is provided. The physical module addresses alone do not
-establish their channel sources.
+New installations use the user's confirmed input-zone mapping:
+
+| Module | Inputs I1-I4 use zones | Register references |
+| --- | --- | --- |
+| 1 | 1-4 | `0x3001`-`0x3004` |
+| 2 | 5-8 | `0x3005`-`0x3008` |
+| 3 | 9-12 | `0x3009`-`0x300C` |
+| 4 | 13-16 | `0x300D`-`0x3010` |
+
+These are panel-reported zone alarm states, with alarm mask `0x0002`, fault
+`0x0004`, test `0x0008`, and disabled `0x0010`. Transmitted addresses are one less
+than the references. No software latch is applied.
+
+Existing saved files remain intact. To apply this profile, disconnect and choose
+**Settings > Use zones 1-16**. It saves the input mappings, panel ID 1, InitPan 1,
+and Zonepoint mode while preserving the IP/port and output mappings.
+
+The default output range is the user-requested `0x7001`-`0x7010`, assigned in
+module/channel order:
+
+| Module | Outputs O1-O4 use register references |
+| --- | --- |
+| 1 | `0x7001`-`0x7004` |
+| 2 | `0x7005`-`0x7008` |
+| 3 | `0x7009`-`0x700C` |
+| 4 | `0x700D`-`0x7010` |
+
+Transmitted addresses are `0x7000`-`0x700F`. The initial display selects bit 1,
+mask `0x0002`, which is the documented device alarm bit. This is an **assumed
+output mapping**: these words report devices, and their use as individual relay
+states is unverified. The output tiles therefore say **Set (assumed)** or
+**Clear (assumed)**, show their register references, and keep `verified: false`.
+Device fault, test, disabled, prealarm, and unavailable readings stay gray.
+
+For an existing saved file, disconnect and select **Settings > Use output range**.
+This explicitly applies the range to all 16 outputs while preserving input maps,
+connection settings, and reset settings. New profiles use this range by default.
+Existing custom output sources are preserved when applying input zones.
 
 Copy `config.example.json` to `config.json`, or load a separate JSON file from
 **Settings > Load configuration...**. The selected file becomes the active
@@ -98,15 +148,27 @@ Each module contains four `inputs` and four `outputs`. Replace a channel's
 | `pdu_address` | Optional cross-check: exactly `register_reference - 1`. |
 | `mask` | Nonzero 16-bit mask selecting the documented channel value. |
 | `active_value` / `inactive_value` | Distinct values after masking; swapping them inverts the interpretation. Any other masked value is unavailable. |
-| `data_kind` | `live_input`, `physical_output_feedback`, or `output_activation`. |
-| `verified` | Must be `true`, based on the installation's verified documentation/configuration. |
-| `latched` | Must be `false`; latched alarms do not represent live I/O. |
+| `data_kind` | `zone_alarm`, `live_input`, `physical_output_feedback`, `output_activation`, or output-only `assumed_device_status`. |
+| `verified` | Live I/O mappings require `true`. The explicit `assumed_device_status` output mapping requires `false` and is displayed as assumed status. |
+| `latched` | The confirmed inputs use `false`. A `zone_alarm` source may explicitly record latched/unknown behavior, but a live I/O source requires `false`. |
 | `source` | Required reference explaining how the channel source was verified. |
 | `output_activation_accepted` | Must be `true` when using commanded output activation rather than measured feedback. |
 | `valid_during_module_condition` | Defaults to `false`. Set true only if the source remains valid during module fault, test, disabled, or unavailable-summary conditions. |
+| `fault_rules` | Optional verified diagnostic rules for input circuit faults; defaults to an empty list. |
 
-No real channel register examples are provided because their addresses are not
-yet established. Do not copy simulation addresses into a live configuration.
+Each item in `fault_rules` identifies a diagnostic `register_reference`, `mask`,
+fault `value`, `normal_value` (default 0), `state`, `verified: true`, and a nonempty
+documentation `source`. Supported states are `short_circuit`, `open_circuit`, and
+`resistor_fault`. Fault and normal codes must differ and fit the mask. Rules
+sharing a mask must agree on its normal code. Duplicate or unverified rules are
+rejected; unexpected codes and conflicting diagnoses stay gray.
+
+For zone inputs, detailed diagnosis is shown only while the zone reports a fault.
+The diagnosis must be fresh independently of the zone reading. A missing/stale
+diagnosis leaves an unspecified gray fault, and a cleared zone fault immediately
+removes its fault color. No diagnostic register addresses are supplied for the
+real panel because those sources are not established in the provided guide.
+Do not copy synthetic diagnostic addresses from simulation into a live mapping.
 Click a square to inspect its source type, mapping, last value, and timestamp.
 
 ## Refresh and diagnostics
@@ -128,11 +190,13 @@ retries. Logs rotate in `logs/monitor.log` (three backups, 1 MB per file).
 ```
 
 Tests cover independent channel decoding, partial failures, stale data, module
-conditions, configuration validation, request limits/timing, and one-shot reset.
+conditions, all three circuit diagnoses, unlatched recovery, ambiguous/unknown
+faults, configuration validation, request limits/timing, and one-shot reset.
 A loopback TCP test checks actual pymodbus read/reset frames against a local
 test responder. The GUI smoke check opens both windows using synthetic values;
 it does not contact a panel. Hardware commissioning still requires verified
-channel mappings and comparison against the real installation.
+verified relay/diagnostic mappings and comparison against the real installation.
+The default output range is an assumption and is not hardware commissioning evidence.
 
 Architecture: `config.py` validates/persists settings, `state.py` plans reads and
 derives indicator states, `modbus.py` applies panel constraints to pymodbus,

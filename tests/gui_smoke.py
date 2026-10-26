@@ -34,15 +34,32 @@ def run():
             deadline = time.monotonic() + 7
             while time.monotonic() < deadline:
                 app.update()
-                if all(app.monitor.view(key).state in ("Active", "Inactive") for key in app.monitor.channels):
+                if all(app.monitor.view(key).state in ("Active", "Inactive", "Short circuit", "Open circuit", "Resistor fault") for key in app.monitor.channels):
                     break
                 time.sleep(0.02)
-            assert all(app.monitor.view(key).state in ("Active", "Inactive") for key in app.monitor.channels)
+            assert all(app.monitor.view(key).state in ("Active", "Inactive", "Short circuit", "Open circuit", "Resistor fault") for key in app.monitor.channels)
             assert app.reset_button.cget("state") == "disabled"
             assert not path.exists(), "Simulation must not save synthetic mappings"
             for card in app.dashboard.cards.values():
                 for indicator in card.indicators.values():
                     assert indicator.square.winfo_width() == indicator.square.winfo_height()
+            for condition, expected, color in (("Normal", "Inactive", "#219E70"), ("Alarm", "Active", "#D94452"),
+                                                ("Short circuit", "Short circuit", "#F2C94C"),
+                                                ("Open circuit", "Open circuit", "#3F82E9"),
+                                                ("Resistor fault", "Resistor fault", "#A565D7")):
+                app.input_condition.set(condition)
+                app.change_simulation()
+                deadline = time.monotonic() + 7
+                while time.monotonic() < deadline:
+                    app.update()
+                    if all(app.monitor.view((m, "inputs", ch)).state == expected for m in range(1, 5) for ch in range(1, 5)):
+                        break
+                    time.sleep(0.02)
+                app.render()
+                assert all(app.monitor.view((m, "inputs", ch)).state == expected for m in range(1, 5) for ch in range(1, 5)), condition
+                for card in app.dashboard.cards.values():
+                    assert all(indicator.square.cget("fg_color") == color for indicator in card.indicators.values()), condition
+                assert all(app.monitor.view((m, "outputs", ch)).state in ("Active", "Inactive") for m in range(1, 5) for ch in range(1, 5))
             app.paused.set(True)
             app.change_simulation()
             # Age only one source: another source must not refresh it by accident.
@@ -70,12 +87,33 @@ def run():
             app.update()
             app.settings_window.vars["panel_id"].set("1")
             app.settings_window.vars["initial_panel"].set("1")
-            app.settings_window.save()
+            app.settings_window.save(use_zone_mapping=True)
             app.update()
             assert path.exists()
             assert app.settings.connection.panel_id == 1
+            assert all(ch.mapping.data_kind == "zone_alarm" and ch.mapping.latched is False
+                       for m in app.settings.modules for ch in m.inputs)
+            assert all(ch.mapping is None for m in app.settings.modules for ch in m.outputs)
+            app.open_settings()
+            app.update()
+            app.settings_window.save(use_output_range=True)
+            app.update()
+            assert app.settings.assumed_output_count() == 16
+            assert "assumed" in app.outputs_notice.cget("text")
+            assert "Outputs 16/16 assumed" in app.footer.cget("text")
+            app.monitor.connected = True
+            for batch in app.monitor.plan:
+                app.monitor.apply_read(batch.reference, [0] * batch.count)
+            app.render()
+            assert all(app.monitor.view((m, "outputs", ch)).state == "Clear (assumed)"
+                       for m in range(1, 5) for ch in range(1, 5))
+            app.monitor.apply_read(0x7001, [2])
+            app.render()
+            indicator = app.outputs_dashboard.cards[1].indicators[(1, "outputs", 1)]
+            assert indicator.status.cget("text") == "Set (assumed)"
+            assert indicator.square.cget("fg_color") == "#D94452"
             assert not errors, errors
-            print("GUI smoke passed: 32 indicators, exact grid, shared windows, simulation, stale data, disconnect.")
+            print("GUI smoke passed: input colors, unlatched zone profile, assumed output range/labels, windows and freshness.")
         finally:
             app.engine.stop()
             if app.engine.thread:

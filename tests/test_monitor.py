@@ -13,7 +13,7 @@ from unittest.mock import patch
 from pymodbus.pdu import ExceptionResponse
 from pymodbus.pdu.register_message import ReadHoldingRegistersResponse, WriteSingleRegisterResponse
 
-from kide_monitor.config import ConfigError, default_config, load_config, parse_config, save_config, simulation_config
+from kide_monitor.config import ConfigError, default_config, load_config, output_range_config, parse_config, save_config, simulation_config, zonepoint_config
 from kide_monitor.engine import MonitorEngine, RequestLimiter
 from kide_monitor.modbus import ModbusException, PanelClient, ProtocolError
 from kide_monitor.state import MonitorState, read_plan
@@ -68,7 +68,8 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual([(0x7400, 4)], [(b.pdu_address, b.count) for b in read_plan(config)])
         plan = read_plan(simulation_config(config))
         self.assertTrue(all(b.count <= 4 for b in plan))
-        self.assertEqual(3, len(plan))
+        self.assertEqual(4, len(plan))
+        self.assertTrue(any(b.reference <= 0x6001 < b.reference + b.count for b in plan))
 
 
 class StateTests(unittest.TestCase):
@@ -90,9 +91,11 @@ class StateTests(unittest.TestCase):
         self.state.apply_read(0x5003, [1], 104, 1004)
         self.assertEqual("Unavailable", self.state.view((1, "inputs", 1), 104).state)
         self.assertEqual("Active", self.state.view((2, "inputs", 1), 104).state)
-        self.state.apply_read(0x7001, [0] * 4, 106, 1006)
-        self.assertEqual("Stale", self.state.view((1, "outputs", 1), 106).state)
-        self.assertEqual("Active", self.state.view((2, "inputs", 1), 106).state)
+        expires = 100 + self.state.stale_seconds
+        self.state.apply_read(0x7001, [0] * 4, expires, 1000 + self.state.stale_seconds)
+        self.state.apply_read(0x6002, [0], expires, 1000 + self.state.stale_seconds)
+        self.assertEqual("Stale", self.state.view((1, "outputs", 1), expires).state)
+        self.assertEqual("Active", self.state.view((2, "inputs", 1), expires).state)
 
     def test_module_fault_never_becomes_green(self):
         self.state.apply_read(0x7001, [4], 101, 1001)
@@ -107,6 +110,8 @@ class StateTests(unittest.TestCase):
         self.state.apply_read(0x5001, [0], 102, 1002)
         self.assertEqual("Unavailable", self.state.view((1, "inputs", 1), 102).state)
         self.state.apply_read(0x7001, [0], 102, 1002)
+        self.assertEqual("Unavailable", self.state.view((1, "inputs", 1), 102).state)
+        self.state.apply_read(0x6001, [0], 102, 1002)
         self.assertEqual("Inactive", self.state.view((1, "inputs", 1), 102).state)
 
     def test_unmapped_and_unexpected_values_are_never_inactive(self):
@@ -118,6 +123,184 @@ class StateTests(unittest.TestCase):
         state.apply_read(0x5001, [2], 100, 1000)
         state.apply_read(0x7001, [0], 100, 1000)
         self.assertEqual("Unavailable", state.view((1, "inputs", 1), 101).state)
+
+
+class ZoneAndCircuitTests(unittest.TestCase):
+    def configured_state(self, diagnostics=False):
+        config = zonepoint_config()
+        if diagnostics:
+            raw = config.to_dict()
+            raw["modules"][0]["inputs"][0]["mapping"]["fault_rules"] = [
+                dict(register_reference="0x6001", mask=7, value=value, state=state,
+                     verified=True, source="Verified test fixture: independent circuit diagnosis")
+                for value, state in enumerate(("short_circuit", "open_circuit", "resistor_fault"), 1)]
+            config = parse_config(raw)
+        state = MonitorState(config)
+        state.connected = True
+        for batch in state.plan:
+            state.apply_read(batch.reference, [0] * batch.count, 100, 1000)
+        return state
+
+    def test_confirmed_input_addresses_unlatched_and_output_mappings_preserved(self):
+        config = zonepoint_config()
+        self.assertEqual((1, 1, "zonepoint"), (config.connection.panel_id, config.connection.initial_panel, config.connection.bms_mode))
+        self.assertEqual(list(range(0x3001, 0x3011)), [ch.mapping.register_reference for m in config.modules for ch in m.inputs])
+        self.assertTrue(all(ch.mapping.latched is False for m in config.modules for ch in m.inputs))
+        self.assertTrue(all(ch.mapping.data_kind == "assumed_device_status" and not ch.mapping.verified
+                            for m in config.modules for ch in m.outputs))
+        base = simulation_config(default_config())
+        updated = zonepoint_config(base)
+        self.assertEqual(base.modules[0].outputs, updated.modules[0].outputs)
+        self.assertEqual(updated, parse_config(updated.to_dict()))
+
+    def test_alarm_and_fault_clear_without_software_latch(self):
+        state = self.configured_state()
+        key = (1, "inputs", 1)
+        for raw, expected in ((0, "Normal"), (2, "Alarm"), (0, "Normal"), (4, "Fault"), (0, "Normal")):
+            state.apply_read(0x3001, [raw], 101, 1001)
+            self.assertEqual(expected, state.view(key, 101).state)
+        self.assertEqual("Normal", state.view((1, "inputs", 2), 101).state)
+
+    def test_unspecified_zone_fault_is_never_invented_as_a_circuit_type(self):
+        state = self.configured_state()
+        for word in (4, 6, 0x104):
+            state.apply_read(0x3001, [word], 101, 1001)
+            state.apply_read(0x7001, [4], 101, 1001)
+            view = state.view((1, "inputs", 1), 101)
+            self.assertEqual("Fault", view.state)
+            self.assertIn("does not identify", view.detail)
+            self.assertIsNone(view.last_value)
+        self.assertEqual("Unavailable", state.view((1, "inputs", 2), 101).state)
+
+    def test_separate_short_open_resistor_diagnoses_and_recovery(self):
+        state = self.configured_state(diagnostics=True)
+        state.apply_read(0x3001, [6], 101, 1001)  # Alarm and fault: fault indication takes priority.
+        state.apply_read(0x7001, [4], 101, 1001)
+        for value, expected in ((1, "Short circuit"), (2, "Open circuit"), (3, "Resistor fault"), (0, "Fault"), (7, "Fault")):
+            state.apply_read(0x6001, [value], 101, 1001)
+            self.assertEqual(expected, state.view((1, "inputs", 1), 101).state)
+        state.apply_read(0x3001, [0], 102, 1002)
+        state.apply_read(0x7001, [0], 102, 1002)
+        self.assertEqual("Normal", state.view((1, "inputs", 1), 102).state)
+
+    def test_missing_or_stale_diagnosis_preserves_unspecified_fault(self):
+        state = self.configured_state(diagnostics=True)
+        state.readings.pop(0x6001)
+        state.apply_read(0x3001, [4], 101, 1001)
+        self.assertEqual("Fault", state.view((1, "inputs", 1), 101).state)
+        state.apply_read(0x6001, [2], 100, 1000)
+        expired = 101 + state.stale_seconds
+        state.apply_read(0x3001, [4], expired, 1010)
+        state.apply_read(0x7001, [0], expired, 1010)
+        self.assertEqual("Fault", state.view((1, "inputs", 1), expired).state)
+        state.disconnect()
+        self.assertEqual("Unavailable", state.view((1, "inputs", 1), expired).state)
+
+    def test_test_disabled_and_prealarm_never_appear_healthy(self):
+        state = self.configured_state()
+        for word, expected in ((8, "Test"), (16, "Disabled"), (1, "Prealarm"), (12, "Test"), (20, "Disabled")):
+            state.apply_read(0x3001, [word], 101, 1001)
+            self.assertEqual(expected, state.view((1, "inputs", 1), 101).state)
+
+    def test_invalid_and_conflicting_diagnostic_configuration(self):
+        base = self.configured_state(diagnostics=True).config.to_dict()
+        for field, value in (("verified", False), ("source", ""), ("state", "guessed_fault"), ("value", 0)):
+            raw = self.configured_state(diagnostics=True).config.to_dict()
+            raw["modules"][0]["inputs"][0]["mapping"]["fault_rules"][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ConfigError):
+                parse_config(raw)
+        rules = base["modules"][0]["inputs"][0]["mapping"]["fault_rules"]
+        rules.append(dict(rules[0], state="open_circuit"))
+        with self.assertRaises(ConfigError):
+            parse_config(base)
+
+    def test_conflicting_fresh_diagnostic_sources_remain_unspecified(self):
+        raw = self.configured_state(diagnostics=True).config.to_dict()
+        raw["modules"][0]["inputs"][0]["mapping"]["fault_rules"].append(
+            dict(register_reference="0x6002", mask=1, value=1, state="open_circuit", verified=True,
+                 source="Second verified diagnostic fixture"))
+        state = MonitorState(parse_config(raw))
+        state.connected = True
+        state.apply_read(0x3001, [4], 100, 1000)
+        state.apply_read(0x7001, [0], 100, 1000)
+        state.apply_read(0x6001, [1, 1], 100, 1000)
+        view = state.view((1, "inputs", 1), 100)
+        self.assertEqual("Fault", view.state)
+        self.assertIn("Conflicting", view.detail)
+
+
+class AssumedOutputTests(unittest.TestCase):
+    def state_with_readings(self):
+        state = MonitorState(zonepoint_config())
+        state.connected = True
+        for batch in state.plan:
+            state.apply_read(batch.reference, [0] * batch.count, 100, 1000)
+        return state
+
+    def test_default_range_order_and_unverified_status_survive_save(self):
+        config = zonepoint_config()
+        outputs = [ch.mapping for module in config.modules for ch in module.outputs]
+        self.assertEqual(list(range(0x7001, 0x7011)), [m.register_reference for m in outputs])
+        self.assertEqual(list(range(0x7000, 0x7010)), [m.pdu_address for m in outputs])
+        self.assertTrue(all(m.mask == 2 and m.active_value == 2 and m.inactive_value == 0 for m in outputs))
+        self.assertTrue(all(not m.verified and m.data_kind == "assumed_device_status" for m in outputs))
+        self.assertEqual({"inputs": 16, "outputs": 16}, config.mapped_counts())
+        self.assertEqual(16, config.assumed_output_count())
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "config.json"
+            save_config(config, path)
+            self.assertEqual(config, load_config(path))
+
+    def test_existing_mappings_preserved_unless_range_is_explicitly_applied(self):
+        base = simulation_config(default_config())
+        base = replace(base, connection=replace(base.connection, host="192.0.2.8", port=1502))
+        self.assertEqual(base, output_range_config(base))
+        updated = output_range_config(base, replace_existing=True)
+        self.assertEqual(base.connection, updated.connection)
+        self.assertEqual(base.modules[0].inputs, updated.modules[0].inputs)
+        self.assertEqual(16, updated.assumed_output_count())
+
+    def test_selected_bit_is_reported_without_claiming_relay_feedback(self):
+        state = self.state_with_readings()
+        self.assertEqual("Clear (assumed)", state.view((1, "outputs", 1), 101).state)
+        state.apply_read(0x7002, [2], 101, 1001)
+        view = state.view((1, "outputs", 2), 101)
+        self.assertEqual("Set (assumed)", view.state)
+        self.assertIn("Relay feedback is unverified", view.detail)
+        self.assertEqual("Clear (assumed)", state.view((1, "outputs", 1), 101).state)
+        state.apply_read(0x7002, [0], 102, 1002)
+        self.assertEqual("Clear (assumed)", state.view((1, "outputs", 2), 102).state)
+
+    def test_status_faults_are_source_specific_and_do_not_color_other_slots(self):
+        state = self.state_with_readings()
+        for word, expected in ((4, "Fault"), (6, "Fault"), (8, "Test"), (16, "Disabled"), (1, "Prealarm")):
+            state.apply_read(0x7002, [word], 101, 1001)
+            self.assertEqual(expected, state.view((1, "outputs", 2), 101).state)
+            # This slot uses 0x7005; physical Module 2's 0x7002 summary is unrelated to it.
+            self.assertEqual("Clear (assumed)", state.view((2, "outputs", 1), 101).state)
+
+    def test_failed_and_stale_reads_never_become_clear_assumed(self):
+        state = self.state_with_readings()
+        state.fail_read(0x7005, 4, "Illegal data address")
+        self.assertEqual("Unavailable", state.view((2, "outputs", 1), 101).state)
+        expires = 100 + state.stale_seconds
+        state.apply_read(0x7001, [0] * 4, expires, 1010)
+        self.assertEqual("Stale", state.view((4, "outputs", 4), expires).state)
+
+    def test_full_range_is_read_in_four_register_batches_and_summaries_deduplicate(self):
+        batches = read_plan(zonepoint_config())
+        self.assertEqual([(0x7000 + offset, 4) for offset in range(0, 16, 4)],
+                         [(b.pdu_address, b.count) for b in batches if b.reference >= 0x7001])
+        self.assertEqual(8, len(batches))
+
+    def test_assumptions_cannot_be_marked_verified_or_used_as_live_input_data(self):
+        for direction, verified, kind in (("outputs", True, "assumed_device_status"),
+                                          ("outputs", False, "physical_output_feedback"),
+                                          ("inputs", False, "assumed_device_status")):
+            raw = zonepoint_config().to_dict()
+            raw["modules"][0][direction][0]["mapping"].update(verified=verified, data_kind=kind)
+            with self.subTest(direction=direction, kind=kind), self.assertRaises(ConfigError):
+                parse_config(raw)
 
 
 class AdapterTests(unittest.TestCase):

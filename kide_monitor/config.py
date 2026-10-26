@@ -78,6 +78,21 @@ class Polling:
 
 
 @dataclass(frozen=True)
+class FaultRule:
+    register_reference: int
+    mask: int
+    value: int
+    state: str
+    source: str
+    normal_value: int = 0
+    verified: bool = True
+
+
+FAULT_LABELS = {"short_circuit": "Short circuit", "open_circuit": "Open circuit",
+                "resistor_fault": "Resistor fault"}
+
+
+@dataclass(frozen=True)
 class Mapping:
     register_reference: int
     mask: int
@@ -86,9 +101,10 @@ class Mapping:
     data_kind: str
     source: str
     verified: bool = True
-    latched: bool = False
+    latched: bool | None = False
     output_activation_accepted: bool = False
     valid_during_module_condition: bool = False
+    fault_rules: tuple[FaultRule, ...] = ()
 
     @property
     def pdu_address(self):
@@ -140,6 +156,15 @@ class Config:
                 for channel in getattr(module, direction):
                     yield (module.id, direction, channel.channel), channel
 
+    def mapped_counts(self):
+        return {direction: sum(ch.mapping is not None for module in self.modules
+                               for ch in getattr(module, direction))
+                for direction in ("inputs", "outputs")}
+
+    def assumed_output_count(self):
+        return sum(ch.mapping is not None and ch.mapping.data_kind == "assumed_device_status"
+                   for module in self.modules for ch in module.outputs)
+
     def summary_references(self) -> dict[int, int]:
         c = self.connection
         if c.panel_id is None or c.initial_panel is None or c.bms_mode != "zonepoint":
@@ -163,21 +188,55 @@ def parse_mapping(value, direction: str, name: str) -> Mapping | None:
     inactive = number(d.get("inactive_value"), f"{name}.inactive_value", 0, 65535)
     if active == inactive or active & ~mask or inactive & ~mask:
         raise ConfigError(f"{name}: active/inactive values must differ and fit the mask.")
-    if flag(d.get("verified", False), name + ".verified") is not True:
-        raise ConfigError(f"{name}: only verified mappings may supply live states; use null until verified.")
-    if flag(d.get("latched", True), name + ".latched"):
-        raise ConfigError(f"{name}: a latched value cannot represent live I/O.")
     kind = d.get("data_kind")
     accepted = flag(d.get("output_activation_accepted", False), name + ".output_activation_accepted")
-    allowed = ("live_input",) if direction == "inputs" else ("physical_output_feedback", "output_activation")
+    allowed = ("live_input", "zone_alarm") if direction == "inputs" else ("physical_output_feedback", "output_activation", "assumed_device_status")
     if kind not in allowed:
         raise ConfigError(f"{name}.data_kind must be one of: {', '.join(allowed)}.")
+    verified = flag(d.get("verified", False), name + ".verified")
+    if kind == "assumed_device_status":
+        if verified:
+            raise ConfigError(f"{name}: assumed device status must remain verified=false.")
+    elif not verified:
+        raise ConfigError(f"{name}: live I/O mappings require verified=true; use null until verified.")
     if kind == "output_activation" and not accepted:
         raise ConfigError(f"{name}: output activation requires explicit output_activation_accepted=true.")
+    latched = d.get("latched", None if kind == "zone_alarm" else True)
+    if latched is not None:
+        latched = flag(latched, name + ".latched")
+    if kind != "zone_alarm" and latched is not False:
+        raise ConfigError(f"{name}: a latched or unconfirmed value cannot represent live I/O.")
+    if kind == "zone_alarm" and (mask not in (0x0002, 0x0200) or active != mask or inactive != 0):
+        raise ConfigError(f"{name}: zone_alarm must select the documented alarm bit (0x0002 or 0x0200).")
+    raw_rules = d.get("fault_rules", [])
+    if not isinstance(raw_rules, list) or (direction != "inputs" and raw_rules):
+        raise ConfigError(f"{name}: fault_rules must be a list for input channels only.")
+    rules, seen = [], set()
+    normal_values = {}
+    for item in raw_rules:
+        r = obj(item, name + ".fault_rules")
+        ref = number(r.get("register_reference"), name + " diagnostic register", 1, 65536)
+        rule_mask = number(r.get("mask"), name + " diagnostic mask", 1, 65535)
+        rule_value = number(r.get("value"), name + " diagnostic value", 0, 65535)
+        normal = number(r.get("normal_value", 0), name + " diagnostic normal value", 0, 65535)
+        if rule_value == normal or (rule_value | normal) & ~rule_mask:
+            raise ConfigError(f"{name}: diagnostic fault/normal values must differ and fit the mask.")
+        if r.get("state") not in FAULT_LABELS or r.get("verified") is not True:
+            raise ConfigError(f"{name}: diagnostic rules require a verified short_circuit, open_circuit, or resistor_fault source.")
+        identity = (ref, rule_mask, rule_value)
+        if identity in seen or normal_values.get((ref, rule_mask), normal) != normal:
+            raise ConfigError(f"{name}: diagnostic rules have duplicate codes or inconsistent normal values.")
+        seen.add(identity)
+        normal_values[(ref, rule_mask)] = normal
+        rules.append(FaultRule(ref, rule_mask, rule_value, r["state"],
+                               text(r.get("source"), name + " diagnostic source", True), normal))
     return Mapping(reference, mask, active, inactive, kind,
                    text(d.get("source"), name + ".source", required=True),
+                   verified=verified,
+                   latched=latched,
                    output_activation_accepted=accepted,
-                   valid_during_module_condition=flag(d.get("valid_during_module_condition", False), name + ".valid_during_module_condition"))
+                   valid_during_module_condition=flag(d.get("valid_during_module_condition", False), name + ".valid_during_module_condition"),
+                   fault_rules=tuple(rules))
 
 
 def parse_config(value) -> Config:
@@ -238,6 +297,9 @@ def parse_config(value) -> Config:
         raise ConfigError("Module IDs must be unique, 1 through 4.")
     if len({(m.loop, m.address) for m in modules}) != 4:
         raise ConfigError("Each module must have a different loop/device address.")
+    if mode == "zonepoint" and any(ch.mapping and ch.mapping.data_kind == "zone_alarm" and ch.mapping.mask != 2
+                                   for module in modules for ch in module.inputs):
+        raise ConfigError("Zonepoint zone alarms use bit 1 of the low byte (mask 0x0002).")
     r = obj(d.get("reset", {}), "reset")
     reset = ResetCommand(flag(r.get("enabled", True), "reset.enabled"),
                          number(r.get("target_panel_id", 0), "reset.target_panel_id", 0, 128))
@@ -249,6 +311,46 @@ def default_config() -> Config:
         Module(i, f"Module {i}", 1, i,
                tuple(Channel(n, f"IN{n}") for n in range(1, 5)),
                tuple(Channel(n, f"OUT{n}") for n in range(1, 5))) for i in range(1, 5)))
+
+
+def output_range_config(base: Config, *, replace_existing=False) -> Config:
+    """User-requested 16 output slots backed by assumed device-status words."""
+    modules = []
+    for module in base.modules:
+        channels = []
+        for ch in module.outputs:
+            if ch.mapping is not None and not replace_existing:
+                channels.append(ch)
+                continue
+            reference = 0x7000 + (module.id - 1) * 4 + ch.channel
+            mapping = Mapping(reference, 2, 2, 0, "assumed_device_status",
+                              "User-requested 0x7001-0x7010 range; bit 1 is device alarm. Relay-state mapping is unverified.",
+                              verified=False)
+            channels.append(replace(ch, mapping=mapping))
+        modules.append(replace(module, outputs=tuple(channels)))
+    return replace(base, modules=tuple(modules))
+
+
+def zonepoint_config(base: Config | None = None) -> Config:
+    """The user's confirmed panel 001, InitPan 1, and one input per zone 1-16."""
+    new_installation = base is None
+    base = default_config() if base is None else base
+    if any(m.loop != 1 or m.address != m.id for m in base.modules):
+        raise ConfigError("The confirmed zone profile requires loop 1 and module addresses 1-4.")
+    modules = []
+    for module in base.modules:
+        channels = []
+        for ch in module.inputs:
+            zone = (module.id - 1) * 4 + ch.channel
+            rules = ch.mapping.fault_rules if ch.mapping else ()
+            mapping = Mapping(0x3000 + zone, 2, 2, 0, "zone_alarm",
+                              f"Zone {zone}: dedicated unlatched input specified by user; Modbus guide pp. 15-16.",
+                              latched=False, fault_rules=rules)
+            channels.append(replace(ch, mapping=mapping))
+        modules.append(replace(module, inputs=tuple(channels)))
+    config = replace(base, connection=replace(base.connection, panel_id=1, initial_panel=1, bms_mode="zonepoint"),
+                     modules=tuple(modules))
+    return output_range_config(config) if new_installation else config
 
 
 def load_config(path: Path) -> Config:
@@ -278,9 +380,16 @@ def simulation_config(config: Config) -> Config:
         for offset, direction in enumerate(("inputs", "outputs")):
             reference = 0x5001 + (module.id - 1) * 2 + offset
             kind = "live_input" if direction == "inputs" else "physical_output_feedback"
-            groups[direction] = tuple(replace(ch, mapping=Mapping(reference, 1 << (ch.channel - 1),
-                                       1 << (ch.channel - 1), 0, kind, "Synthetic demo; not a panel mapping"))
-                                      for ch in getattr(module, direction))
+            channels = []
+            for ch in getattr(module, direction):
+                shift = (ch.channel - 1) * 3
+                rules = tuple(FaultRule(0x6000 + module.id, 7 << shift, code << shift, state,
+                                       "Synthetic diagnostic code; not a panel register")
+                              for code, state in enumerate(FAULT_LABELS, 1)) if direction == "inputs" else ()
+                channels.append(replace(ch, mapping=Mapping(reference, 1 << (ch.channel - 1),
+                                        1 << (ch.channel - 1), 0, kind, "Synthetic demo; not a panel mapping",
+                                        fault_rules=rules)))
+            groups[direction] = tuple(channels)
         modules.append(replace(module, **groups))
     return replace(config, connection=replace(config.connection, panel_id=1, initial_panel=1, bms_mode="zonepoint"),
                    modules=tuple(modules), reset=ResetCommand(enabled=False))
